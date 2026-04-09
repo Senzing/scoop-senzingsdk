@@ -21,10 +21,10 @@ To accept in advance (e.g. for automation), set one of:
 
 ```pwsh
 # Option 1: environment variable
-$env:I_ACCEPT_THE_SENZING_EULA = "yes"
+$env:SENZING_ACCEPT_EULA = "I_ACCEPT_THE_SENZING_EULA"
 
 # Option 2: scoop config
-scoop config I_ACCEPT_THE_SENZING_EULA yes
+scoop config SENZING_ACCEPT_EULA I_ACCEPT_THE_SENZING_EULA
 ```
 
 ### Update
