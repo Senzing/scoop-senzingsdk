@@ -1,0 +1,93 @@
+name: Update to new release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to update to (e.g. 4.2.2.26075)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-to-new-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set variables
+        shell: pwsh
+        run: |
+          $s3Url = "https://senzing-production-win.s3.amazonaws.com/"
+          $version = "${{ inputs.version }}"
+          $key = "SenzingSDK_${version}.zip"
+
+          echo "S3_URL=$s3Url" >> $env:GITHUB_ENV
+          echo "NEW_VERSION=$version" >> $env:GITHUB_ENV
+          echo "LATEST_KEY=$key" >> $env:GITHUB_ENV
+
+      - name: Get current manifest version
+        shell: pwsh
+        run: |
+          $manifest = Get-Content -Path "bucket/senzingsdk.json" -Raw | ConvertFrom-Json
+          echo "CURRENT_VERSION=$($manifest.version)" >> $env:GITHUB_ENV
+
+      - name: Download and update manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $downloadUrl = "$env:S3_URL$env:LATEST_KEY"
+          $tempFile = Join-Path $env:TEMP $env:LATEST_KEY
+          $manifestPath = "bucket/senzingsdk.json"
+
+          Write-Host "Downloading: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFile -UseBasicParsing
+
+          Write-Host "Computing SHA256 hash..."
+          $hash = (Get-FileHash -Path $tempFile -Algorithm SHA256).Hash.ToLower()
+          Write-Host "SHA256: $hash"
+
+          # Update manifest fields in-place to preserve formatting
+          $content = Get-Content -Path $manifestPath -Raw
+          $content = $content -replace '"version":\s*"[^"]+"', "`"version`": `"$env:NEW_VERSION`""
+          $content = $content -replace '"url":\s*"https://[^"]+SenzingSDK_[^"]+"', "`"url`": `"$($env:S3_URL)$env:LATEST_KEY`""
+          $content = $content -replace '"hash":\s*"[0-9a-f]+"', "`"hash`": `"$hash`""
+          Set-Content -Path $manifestPath -Value $content -Encoding UTF8 -NoNewline
+
+          Write-Host "Manifest updated successfully"
+
+          # Clean up
+          Remove-Item $tempFile -Force
+
+      - name: Create pull request
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $branch = "update-senzingsdk-$env:NEW_VERSION"
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b $branch
+          git add bucket/senzingsdk.json
+          git commit -m "Update senzingsdk to version $env:NEW_VERSION"
+          git push origin $branch
+
+          gh pr create `
+            --title "Update senzingsdk to version $env:NEW_VERSION" `
+            --body "Automated update from GitHub Actions workflow.
+
+          ## Changes
+          - Updated version from $env:CURRENT_VERSION to $env:NEW_VERSION
+          - Updated SHA256 hash
+
+          ## Source
+          - S3 Bucket: $env:S3_URL
+          - File: $env:LATEST_KEY"
