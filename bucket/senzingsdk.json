@@ -15,9 +15,6 @@
     "",
     "To verify installation:",
     "  echo $env:SENZING_DIR",
-    "",
-    "IMPORTANT: By installing this package, you accept the Senzing EULA:",
-    "  https://senzing.com/software-license-agreement/"
   ],
   "extract_dir": "senzing",
   "architecture": {
