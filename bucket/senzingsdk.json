@@ -44,6 +44,7 @@
     "    Write-Host ''",
     "    $response = Read-Host 'Do you accept the Senzing EULA? (yes/no)'",
     "    if ($response -inotin @('I_ACCEPT_THE_SENZING_EULA', 'yes', 'y', '1')) {",
+    "        Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue",
     "        throw 'Installation cancelled: EULA not accepted'",
     "    }",
     "}"
