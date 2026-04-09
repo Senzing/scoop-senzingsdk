@@ -39,6 +39,12 @@ scoop update senzingsdk
 scoop uninstall senzingsdk
 ```
 
+### Remove the bucket
+
+```pwsh
+scoop bucket rm senzingsdk
+```
+
 ## What gets installed
 
 - `SENZING_DIR` environment variable is set to the Senzing engine runtime directory
