@@ -1,5 +1,6 @@
 name: Update to new release
 
+# checkov:skip=CKV_GHA_7: Manual maintainer override of upstream version. Refactor to `scoop checkver -u` is tracked separately and will remove this input. Input is regex-validated below.
 on:
   workflow_dispatch:
     inputs:
@@ -18,13 +19,24 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
 
       - name: Set variables
         shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           $s3Url = "https://senzing-production-win.s3.amazonaws.com/"
-          $version = "${{ inputs.version }}"
+          $version = $env:INPUT_VERSION
+
+          # Validate version format to prevent injection via the workflow_dispatch input
+          if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+              Write-Error "Invalid version format: '$version'. Expected pattern: <major>.<minor>.<patch>.<build> (digits and dots only)."
+              exit 1
+          }
+
           $key = "SenzingSDK_${version}.msi"
 
           echo "S3_URL=$s3Url" >> $env:GITHUB_ENV
@@ -89,6 +101,9 @@ jobs:
 
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Restore git auth (checkout step uses persist-credentials: false)
+          gh auth setup-git
 
           git checkout -b $branch
           git add bucket/senzingsdk.json
