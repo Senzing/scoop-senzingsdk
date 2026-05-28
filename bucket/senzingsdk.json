@@ -19,11 +19,11 @@
     "To verify installation:",
     "  echo $env:SENZING_DIR"
   ],
-  "extract_dir": "senzing",
+  "extract_dir": "PFiles64\\Senzing",
   "architecture": {
     "64bit": {
-      "url": "https://senzing-production-win.s3.amazonaws.com/SenzingSDK_4.3.0.26135.zip",
-      "hash": "fa5f68dfafada2a952c478f4cefa95ed5c95b0af1608da6ca393475eb568c206"
+      "url": "https://senzing-production-win.s3.amazonaws.com/SenzingSDK_4.3.0.26135.msi",
+      "hash": "1c49e1d26b79765016688265e06dc49a74b3690b8c9d6dd380a9377f487f5b42"
     }
   },
   "pre_install": [
@@ -52,19 +52,25 @@
     "    }",
     "}"
   ],
+  "post_install": [
+    "if (-not (Test-Path -Path \"$dir\\er\\lib\")) {",
+    "    Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue",
+    "    throw \"Senzing SDK extraction failed: expected '$dir\\er\\lib' was not produced. The MSI internal layout may have changed; please file an issue.\"",
+    "}"
+  ],
   "env_add_path": "er\\lib",
   "env_set": {
     "SENZING_DIR": "$dir\\er"
   },
   "checkver": {
     "url": "https://senzing-production-win.s3.amazonaws.com/",
-    "regex": "SenzingSDK_([\\d.]+)\\.zip"
+    "regex": "SenzingSDK_([\\d.]+)\\.msi"
   },
   "autoupdate": {
-    "extract_dir": "senzing",
+    "extract_dir": "PFiles64\\Senzing",
     "architecture": {
       "64bit": {
-        "url": "https://senzing-production-win.s3.amazonaws.com/SenzingSDK_4.3.0.26135.zip"
+        "url": "https://senzing-production-win.s3.amazonaws.com/SenzingSDK_$version.msi"
       }
     }
   }
