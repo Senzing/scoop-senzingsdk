@@ -4,7 +4,7 @@
   "homepage": "https://senzing.com/senzing-api/",
   "license": {
     "identifier": "Proprietary",
-    "url": "https://senzing.com/software-license-agreement/"
+    "url": "https://senzing.com/end-user-license-agreement"
   },
   "notes": [
     "WARNING: Preview Release - Unsupported",
@@ -27,7 +27,7 @@
     }
   },
   "pre_install": [
-    "$eulaUrl = 'https://senzing.com/software-license-agreement/'",
+    "$eulaUrl = 'https://senzing.com/end-user-license-agreement'",
     "",
     "# Check if EULA has been accepted",
     "$envAccepted = $env:SENZING_ACCEPT_EULA",
