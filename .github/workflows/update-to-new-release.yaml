@@ -59,13 +59,13 @@ jobs:
           # Top-level version (only one in the manifest)
           $content = $content -replace '"version":\s*"[^"]+"', "`"version`": `"$env:NEW_VERSION`""
 
-          # Anchored URL replacement: only architecture.64bit.url, not the autoupdate template
-          $urlPattern = '(?s)("architecture"\s*:\s*\{\s*"64bit"\s*:\s*\{\s*"url"\s*:\s*")[^"]+(")'
-          $content = $content -replace $urlPattern, "`${1}$($env:S3_URL)$($env:LATEST_KEY)`${2}"
+          # URL replacement: only matches concrete-version URLs (e.g. SenzingSDK_4.3.0.26135.msi),
+          # so the autoupdate template URL (SenzingSDK_$version.msi) is left untouched
+          $urlPattern = '"url":\s*"https://[^"]+SenzingSDK_[\d.]+\.msi"'
+          $content = $content -replace $urlPattern, "`"url`": `"$($env:S3_URL)$env:LATEST_KEY`""
 
-          # Anchored hash replacement: only architecture.64bit.hash
-          $hashPattern = '(?s)("architecture"\s*:\s*\{\s*"64bit"\s*:\s*\{[^}]*?"hash"\s*:\s*")[^"]+(")'
-          $content = $content -replace $hashPattern, "`${1}$hash`${2}"
+          # Hash replacement: only one hash field in the manifest, so no anchoring needed
+          $content = $content -replace '"hash":\s*"[0-9a-f]+"', "`"hash`": `"$hash`""
 
           # Sanity check: the autoupdate template must still be intact
           if ($content -notmatch 'SenzingSDK_\$version\.msi') {
