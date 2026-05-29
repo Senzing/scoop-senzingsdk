@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The changelog format is based on [Keep a Changelog] and [CommonMark].
 This project adheres to [Semantic Versioning].
 
+## [1.0.0] - 2026-05-29
+
 ### Changed
 
 - Installing from the MSI now.
