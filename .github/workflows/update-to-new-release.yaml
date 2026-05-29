@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   update-to-new-release:
-    runs-on: windows-2022
+    runs-on: windows-2025
 
     steps:
       - name: Checkout repository
