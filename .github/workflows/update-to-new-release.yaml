@@ -61,6 +61,15 @@ jobs:
           Write-Host "Downloading: $downloadUrl"
           Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFile -UseBasicParsing
 
+          # Validate that S3 actually returned an MSI, not an error body or redirect HTML.
+          # MSI files are OLE compound documents; the first 8 bytes are a fixed magic value.
+          $magicBytes = Get-Content -Path $tempFile -AsByteStream -TotalCount 8
+          $magicHex = ($magicBytes | ForEach-Object { $_.ToString('X2') }) -join ''
+          if ($magicHex -ne 'D0CF11E0A1B11AE1') {
+              Write-Error "Downloaded file is not an MSI (magic bytes: $magicHex; expected D0CF11E0A1B11AE1). S3 may have returned a non-MSI body."
+              exit 1
+          }
+
           Write-Host "Computing SHA256 hash..."
           $hash = (Get-FileHash -Path $tempFile -Algorithm SHA256).Hash.ToLower()
           Write-Host "SHA256: $hash"
