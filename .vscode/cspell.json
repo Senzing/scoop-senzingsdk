@@ -3,6 +3,7 @@
   "language": "en",
   "words": [
     "CCLA",
+    "checkver",
     "choosealicense",
     "claudecommandssenzingmd",
     "CODEOWNER",
@@ -10,8 +11,11 @@
     "cooldown",
     "esbenp",
     "ICLA",
+    "inotin",
     "kernelsam",
+    "notmatch",
     "Senzing",
+    "senzingsdk",
     "stackoverflow",
     "zizmor"
   ],
