@@ -7,9 +7,6 @@
     "url": "https://senzing.com/end-user-license-agreement"
   },
   "notes": [
-    "WARNING: Preview Release - Unsupported",
-    "This is a preview release. It is provided as-is with no warranty and is not supported.",
-    "",
     "Senzing SDK has been installed.",
     "",
     "Environment variables have been configured:",
