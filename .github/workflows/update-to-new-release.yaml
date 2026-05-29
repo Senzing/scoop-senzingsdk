@@ -105,14 +105,23 @@ jobs:
           # Restore git auth (checkout step uses persist-credentials: false)
           gh auth setup-git
 
-          git checkout -b $branch
+          # -B creates or resets the local branch, so re-runs for the same version work
+          git checkout -B $branch
           git add bucket/senzingsdk.json
           git commit -m "Update senzingsdk to version $env:NEW_VERSION"
-          git push origin $branch
+          # force-with-lease safely overwrites the remote branch on re-runs
+          git push --force-with-lease origin $branch
 
-          gh pr create `
-            --title "Update senzingsdk to version $env:NEW_VERSION" `
-            --body "Automated update from GitHub Actions workflow.
+          # If a PR already exists for this branch, the force-push just updated it; skip creation
+          $existingPr = gh pr list --head $branch --base main --state open --json url --jq '.[0].url'
+          if ($existingPr) {
+              Write-Host "PR already exists for $branch, updated by force-push: $existingPr"
+          } else {
+              gh pr create `
+                --base main `
+                --head $branch `
+                --title "Update senzingsdk to version $env:NEW_VERSION" `
+                --body "Automated update from GitHub Actions workflow.
 
           ## Changes
           - Updated version from $env:CURRENT_VERSION to $env:NEW_VERSION
@@ -121,3 +130,4 @@ jobs:
           ## Source
           - S3 Bucket: $env:S3_URL
           - File: $env:LATEST_KEY"
+          }
