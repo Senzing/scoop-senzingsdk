@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The changelog format is based on [Keep a Changelog] and [CommonMark].
 This project adheres to [Semantic Versioning].
 
+## [Unreleased]
+
+### Fixed
+
+- Issue- and PR-tracking workflows now add to the senzing organization project board instead of referencing the undefined `SENZING_PROJECT_GARAGE` variable (which resolved to an empty project).
+
 ## [1.0.0] - 2026-05-29
 
 ### Changed
