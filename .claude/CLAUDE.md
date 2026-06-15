@@ -27,7 +27,7 @@ GitHub Actions workflows use reusable workflows from [senzing-factory/build-reso
 - **claude-pr-review.yaml**: Automated Claude PR review on opened/synchronized PRs
 - **dependabot-approve-and-merge.yaml**: Auto-approves and merges dependabot PRs
 - **add-labels-standardized.yaml**: Adds labels to new issues
-- **add-to-project-garage.yaml**: Adds issues to the Garage project board
+- **add-to-project-senzing.yaml**: Adds issues to the senzing organization project board
 
 ## CHANGELOG Convention
 
