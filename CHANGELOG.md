@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning].
 ### Fixed
 
 - Issue- and PR-tracking workflows now add to the senzing organization project board instead of referencing the undefined `SENZING_PROJECT_GARAGE` variable (which resolved to an empty project).
+- The "Update to new release" workflow now creates signed (verified) commits via the GitHub API instead of unsigned local commits.
 
 ## [1.0.0] - 2026-05-29
 
