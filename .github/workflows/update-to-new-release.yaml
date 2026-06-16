@@ -19,7 +19,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
@@ -31,11 +31,17 @@ jobs:
           $s3Url = "https://senzing-production-win.s3.amazonaws.com/"
           $version = $env:INPUT_VERSION
 
-          # Validate version format to prevent injection via the workflow_dispatch input
-          if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
-              Write-Error "Invalid version format: '$version'. Expected pattern: <major>.<minor>.<patch>.<build> (digits and dots only)."
+          # Validate the input to prevent injection via the workflow_dispatch input.
+          # Accept both the dot form (4.3.2.26162) and the hyphen-before-build form (4.3.2-26162).
+          if ($version -notmatch '^\d+\.\d+\.\d+[.-]\d+$') {
+              Write-Error "Invalid version format: '$version'. Expected <major>.<minor>.<patch>.<build>, e.g. 4.3.2.26162 or 4.3.2-26162."
               exit 1
           }
+
+          # Normalize to the canonical dot form used in the manifest and S3 object key.
+          # After this, NEW_VERSION holds only digits and dots, so it is safe to interpolate
+          # into the S3 key, branch name, and commit message downstream.
+          $version = $version -replace '-', '.'
 
           $key = "SenzingSDK_${version}.msi"
 
@@ -101,30 +107,82 @@ jobs:
           # Clean up
           Remove-Item $tempFile -Force
 
-      - name: Create pull request
+      - name: Create signed commit and pull request
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = 'Stop'
+
+          $repo = $env:GITHUB_REPOSITORY
           $branch = "update-senzingsdk-$env:NEW_VERSION"
+          $manifestPath = "bucket/senzingsdk.json"
 
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Base the branch on main's current head so re-runs start clean (one commit on top of main)
+          $mainSha = gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha'
+          # Native (gh) failures don't throw under ErrorActionPreference='Stop', so check explicitly
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($mainSha)) {
+              Write-Error "Failed to resolve the head SHA of main."
+              exit 1
+          }
 
-          # Restore git auth (checkout step uses persist-credentials: false)
-          gh auth setup-git
+          # Create or reset the remote branch to main's head.
+          # PATCH fails if the branch doesn't exist yet, so fall back to creating it.
+          gh api -X PATCH "repos/$repo/git/refs/heads/$branch" -f sha=$mainSha -F force=true 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+              gh api -X POST "repos/$repo/git/refs" -f ref="refs/heads/$branch" -f sha=$mainSha | Out-Null
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "Failed to create branch $branch."
+                  exit 1
+              }
+          }
 
-          # -B creates or resets the local branch, so re-runs for the same version work
-          git checkout -B $branch
-          git add bucket/senzingsdk.json
-          git commit -m "Update senzingsdk to version $env:NEW_VERSION"
-          # force-with-lease safely overwrites the remote branch on re-runs
-          git push --force-with-lease origin $branch
+          # Commit the updated manifest via the GraphQL API so GitHub signs the commit
+          # (shows as "Verified"); a local `git commit` would be unsigned.
+          $contents = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $manifestPath).Path))
+          $query = 'mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid url } } }'
+          $body = @{
+              query = $query
+              variables = @{
+                  input = @{
+                      branch = @{
+                          repositoryNameWithOwner = $repo
+                          branchName = $branch
+                      }
+                      message = @{ headline = "Update senzingsdk to version $env:NEW_VERSION" }
+                      # The branch head equals $mainSha after the create/reset above
+                      expectedHeadOid = $mainSha
+                      fileChanges = @{
+                          additions = @(
+                              @{ path = $manifestPath; contents = $contents }
+                          )
+                      }
+                  }
+              }
+          } | ConvertTo-Json -Depth 10
 
-          # If a PR already exists for this branch, the force-push just updated it; skip creation
+          # Unique temp path avoids collisions if this ever runs on a shared (self-hosted) runner
+          $bodyFile = [System.IO.Path]::GetTempFileName()
+          Set-Content -Path $bodyFile -Value $body -Encoding UTF8
+          # Capture the commit OID: gh exits non-zero on GraphQL errors, and a missing OID
+          # catches any partial-success response that still returns exit 0.
+          $commitOid = gh api graphql --input $bodyFile --jq '.data.createCommitOnBranch.commit.oid'
+          $commitExit = $LASTEXITCODE
+          Remove-Item $bodyFile -Force
+          if ($commitExit -ne 0 -or [string]::IsNullOrWhiteSpace($commitOid)) {
+              Write-Error "Failed to create signed commit on $branch via createCommitOnBranch."
+              exit 1
+          }
+          Write-Host "Created signed commit $commitOid on $branch"
+
+          # If a PR already exists for this branch, the commit above just updated it; skip creation
           $existingPr = gh pr list --head $branch --base main --state open --json url --jq '.[0].url'
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Failed to query existing pull requests for $branch."
+              exit 1
+          }
           if ($existingPr) {
-              Write-Host "PR already exists for $branch, updated by force-push: $existingPr"
+              Write-Host "PR already exists for $branch, updated by the new commit: $existingPr"
           } else {
               gh pr create `
                 --base main `
@@ -139,4 +197,8 @@ jobs:
           ## Source
           - S3 Bucket: $env:S3_URL
           - File: $env:LATEST_KEY"
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "Failed to create pull request for $branch."
+                  exit 1
+              }
           }
