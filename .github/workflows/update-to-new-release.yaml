@@ -114,12 +114,21 @@ jobs:
 
           # Base the branch on main's current head so re-runs start clean (one commit on top of main)
           $mainSha = gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha'
+          # Native (gh) failures don't throw under ErrorActionPreference='Stop', so check explicitly
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($mainSha)) {
+              Write-Error "Failed to resolve the head SHA of main."
+              exit 1
+          }
 
           # Create or reset the remote branch to main's head.
           # PATCH fails if the branch doesn't exist yet, so fall back to creating it.
           gh api -X PATCH "repos/$repo/git/refs/heads/$branch" -f sha=$mainSha -F force=true 2>$null
           if ($LASTEXITCODE -ne 0) {
               gh api -X POST "repos/$repo/git/refs" -f ref="refs/heads/$branch" -f sha=$mainSha | Out-Null
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "Failed to create branch $branch."
+                  exit 1
+              }
           }
 
           # Commit the updated manifest via the GraphQL API so GitHub signs the commit
@@ -149,10 +158,19 @@ jobs:
           $bodyFile = Join-Path $env:TEMP "commit-body.json"
           Set-Content -Path $bodyFile -Value $body -Encoding UTF8
           gh api graphql --input $bodyFile
+          $commitExit = $LASTEXITCODE
           Remove-Item $bodyFile -Force
+          if ($commitExit -ne 0) {
+              Write-Error "Failed to create signed commit on $branch via createCommitOnBranch."
+              exit 1
+          }
 
           # If a PR already exists for this branch, the commit above just updated it; skip creation
           $existingPr = gh pr list --head $branch --base main --state open --json url --jq '.[0].url'
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Failed to query existing pull requests for $branch."
+              exit 1
+          }
           if ($existingPr) {
               Write-Host "PR already exists for $branch, updated by the new commit: $existingPr"
           } else {
@@ -169,4 +187,8 @@ jobs:
           ## Source
           - S3 Bucket: $env:S3_URL
           - File: $env:LATEST_KEY"
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "Failed to create pull request for $branch."
+                  exit 1
+              }
           }
