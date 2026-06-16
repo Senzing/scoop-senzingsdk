@@ -155,15 +155,19 @@ jobs:
               }
           } | ConvertTo-Json -Depth 10
 
-          $bodyFile = Join-Path $env:TEMP "commit-body.json"
+          # Unique temp path avoids collisions if this ever runs on a shared (self-hosted) runner
+          $bodyFile = [System.IO.Path]::GetTempFileName()
           Set-Content -Path $bodyFile -Value $body -Encoding UTF8
-          gh api graphql --input $bodyFile
+          # Capture the commit OID: gh exits non-zero on GraphQL errors, and a missing OID
+          # catches any partial-success response that still returns exit 0.
+          $commitOid = gh api graphql --input $bodyFile --jq '.data.createCommitOnBranch.commit.oid'
           $commitExit = $LASTEXITCODE
           Remove-Item $bodyFile -Force
-          if ($commitExit -ne 0) {
+          if ($commitExit -ne 0 -or [string]::IsNullOrWhiteSpace($commitOid)) {
               Write-Error "Failed to create signed commit on $branch via createCommitOnBranch."
               exit 1
           }
+          Write-Host "Created signed commit $commitOid on $branch"
 
           # If a PR already exists for this branch, the commit above just updated it; skip creation
           $existingPr = gh pr list --head $branch --base main --state open --json url --jq '.[0].url'
