@@ -101,30 +101,60 @@ jobs:
           # Clean up
           Remove-Item $tempFile -Force
 
-      - name: Create pull request
+      - name: Create signed commit and pull request
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = 'Stop'
+
+          $repo = $env:GITHUB_REPOSITORY
           $branch = "update-senzingsdk-$env:NEW_VERSION"
+          $manifestPath = "bucket/senzingsdk.json"
 
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Base the branch on main's current head so re-runs start clean (one commit on top of main)
+          $mainSha = gh api "repos/$repo/git/ref/heads/main" --jq '.object.sha'
 
-          # Restore git auth (checkout step uses persist-credentials: false)
-          gh auth setup-git
+          # Create or reset the remote branch to main's head.
+          # PATCH fails if the branch doesn't exist yet, so fall back to creating it.
+          gh api -X PATCH "repos/$repo/git/refs/heads/$branch" -f sha=$mainSha -F force=true 2>$null
+          if ($LASTEXITCODE -ne 0) {
+              gh api -X POST "repos/$repo/git/refs" -f ref="refs/heads/$branch" -f sha=$mainSha | Out-Null
+          }
 
-          # -B creates or resets the local branch, so re-runs for the same version work
-          git checkout -B $branch
-          git add bucket/senzingsdk.json
-          git commit -m "Update senzingsdk to version $env:NEW_VERSION"
-          # force-with-lease safely overwrites the remote branch on re-runs
-          git push --force-with-lease origin $branch
+          # Commit the updated manifest via the GraphQL API so GitHub signs the commit
+          # (shows as "Verified"); a local `git commit` would be unsigned.
+          $contents = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Resolve-Path $manifestPath).Path))
+          $query = 'mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid url } } }'
+          $body = @{
+              query = $query
+              variables = @{
+                  input = @{
+                      branch = @{
+                          repositoryNameWithOwner = $repo
+                          branchName = $branch
+                      }
+                      message = @{ headline = "Update senzingsdk to version $env:NEW_VERSION" }
+                      # The branch head equals $mainSha after the create/reset above
+                      expectedHeadOid = $mainSha
+                      fileChanges = @{
+                          additions = @(
+                              @{ path = $manifestPath; contents = $contents }
+                          )
+                      }
+                  }
+              }
+          } | ConvertTo-Json -Depth 10
 
-          # If a PR already exists for this branch, the force-push just updated it; skip creation
+          $bodyFile = Join-Path $env:TEMP "commit-body.json"
+          Set-Content -Path $bodyFile -Value $body -Encoding UTF8
+          gh api graphql --input $bodyFile
+          Remove-Item $bodyFile -Force
+
+          # If a PR already exists for this branch, the commit above just updated it; skip creation
           $existingPr = gh pr list --head $branch --base main --state open --json url --jq '.[0].url'
           if ($existingPr) {
-              Write-Host "PR already exists for $branch, updated by force-push: $existingPr"
+              Write-Host "PR already exists for $branch, updated by the new commit: $existingPr"
           } else {
               gh pr create `
                 --base main `
