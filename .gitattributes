@@ -1,0 +1,5 @@
+# Normalize line endings to LF for all text files.
+# The "Update to new release" workflow runs on a Windows runner where git's
+# default core.autocrlf=true would otherwise write CRLF on checkout; forcing
+# eol=lf keeps the committed manifest LF-only and diffs minimal.
+* text=auto eol=lf
