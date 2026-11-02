@@ -9,10 +9,11 @@ This is a **Scoop bucket** for distributing the Senzing SDK on Windows. It conta
 ## Key Files
 
 - **bucket/senzingsdk.json**: Scoop package manifest. Defines the download URL, SHA-256 hash, EULA acceptance flow, environment variable setup (`SENZING_DIR`, `PATH`), and `checkver`/`autoupdate` blocks for Scoop's built-in update tooling.
-- **.github/workflows/update-to-new-release.yaml**: Manually dispatched workflow that runs Scoop's own `checkver.ps1 -Update` (from a pinned checkout of ScoopInstaller/Scoop) against the manifest. Scoop's `checkver` block finds the latest version in the S3 bucket (or an optional `version` input pins one via `checkver -Version`) and its `autoupdate` block rewrites the version, URL, and hash. If the version changed, the workflow opens a PR with a signed commit. It refuses to downgrade unless the version was given explicitly.
+- **.github/workflows/update-to-new-release.yaml**: Manually dispatched workflow that runs Scoop's own `checkver.ps1 -Update` (from a pinned checkout of ScoopInstaller/Scoop) against the manifest. Scoop's `checkver` block finds the latest version in the S3 bucket (or an optional `version` input pins one via `checkver -Version`) and its `autoupdate` block rewrites the version, URL, and hash. If the version changed, the workflow opens a PR with a signed commit. It refuses to downgrade unless the version was given explicitly, and checks that the file Scoop downloaded (in an empty `SCOOP_CACHE`) is an MSI before committing its hash.
 
 ## Important Conventions
 
+- The Scoop checkout is pinned to a release commit that Dependabot does not update; bump it manually when Scoop publishes a release.
 - Update logic lives in the manifest's `checkver`/`autoupdate` blocks, not in the workflow. Don't hand-edit manifest fields from the workflow.
 - The `checkver` script sorts S3 keys by `[version]` because the S3 listing is lexical (it would rank 4.4 above 4.10).
 - The manifest uses Scoop's canonical formatting (4-space indentation, as written by Scoop's `ConvertToPrettyJson`) so automated updates produce minimal diffs. The workflow converts Scoop's CRLF output to LF.
