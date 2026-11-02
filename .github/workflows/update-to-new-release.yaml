@@ -54,7 +54,9 @@ jobs:
           if ($requestedVersion) {
               # Validate the input to prevent injection via the workflow_dispatch input.
               # Accept both the dot form (4.3.2.26162) and the hyphen-before-build form (4.3.2-26162).
-              if ($requestedVersion -notmatch '^\d+\.\d+\.\d+[.-]\d+$') {
+              # \A/\z (not ^/$, which allow a trailing newline in .NET) and [0-9] (not \d, which
+              # matches any Unicode digit) keep the accepted characters to ASCII digits, dots, and a hyphen.
+              if ($requestedVersion -notmatch '\A[0-9]+\.[0-9]+\.[0-9]+[.-][0-9]+\z') {
                   Write-Error "Invalid version format: '$requestedVersion'. Expected <major>.<minor>.<patch>.<build>, e.g. 4.3.2.26162 or 4.3.2-26162."
                   exit 1
               }
@@ -80,9 +82,16 @@ jobs:
           $content = (Get-Content -Path $manifestPath -Raw) -replace "`r`n", "`n"
           $newVersion = ($content | ConvertFrom-Json).version
 
+          # checkver skips a manifest silently if it lacks a checkver/autoupdate block, so confirm
+          # a requested version actually landed in the manifest.
+          if ($requestedVersion -and $newVersion -cne $requestedVersion) {
+              Write-Error "Manifest version is '$newVersion' after checkver, expected the requested $requestedVersion; see output above."
+              exit 1
+          }
+
           # Compare the whole manifest, not just the version, so a hash-only change (a requested
           # version that matches the manifest but whose MSI was re-uploaded) still produces a PR.
-          if ($content -eq $originalContent) {
+          if ($content -ceq $originalContent) {
               if ($requestedVersion) {
                   Write-Host "Manifest already matches $requestedVersion; nothing to update."
               } else {
@@ -100,7 +109,7 @@ jobs:
 
           # NEW_VERSION is interpolated into the branch name, commit message, and PR body,
           # so ensure it holds only digits and dots.
-          if ($newVersion -notmatch '^\d+(\.\d+){3}$') {
+          if ($newVersion -notmatch '\A[0-9]+(\.[0-9]+){3}\z') {
               Write-Error "Unexpected version format from checkver: '$newVersion'."
               exit 1
           }
@@ -132,8 +141,18 @@ jobs:
 
           Set-Content -Path $manifestPath -Value $content -Encoding UTF8NoBOM -NoNewline
 
+          # A hash-only change means the MSI for the current version was re-uploaded.
+          if ($newVersion -ceq $currentVersion) {
+              $title = "Refresh senzingsdk $newVersion hash"
+              $changes = "Updated SHA256 hash for $newVersion (MSI re-uploaded to S3)"
+          } else {
+              $title = "Update senzingsdk to version $newVersion"
+              $changes = "Updated version from $currentVersion to $newVersion, with its URL and SHA256 hash"
+          }
+
           echo "UPDATED=true" >> $env:GITHUB_ENV
-          echo "CURRENT_VERSION=$currentVersion" >> $env:GITHUB_ENV
+          echo "TITLE=$title" >> $env:GITHUB_ENV
+          echo "CHANGES=$changes" >> $env:GITHUB_ENV
           echo "NEW_VERSION=$newVersion" >> $env:GITHUB_ENV
           echo "DOWNLOAD_URL=$(($content | ConvertFrom-Json).architecture.'64bit'.url)" >> $env:GITHUB_ENV
 
@@ -180,7 +199,7 @@ jobs:
                           repositoryNameWithOwner = $repo
                           branchName = $branch
                       }
-                      message = @{ headline = "Update senzingsdk to version $env:NEW_VERSION" }
+                      message = @{ headline = $env:TITLE }
                       # The branch head equals $mainSha after the create/reset above
                       expectedHeadOid = $mainSha
                       fileChanges = @{
@@ -218,12 +237,11 @@ jobs:
               gh pr create `
                 --base main `
                 --head $branch `
-                --title "Update senzingsdk to version $env:NEW_VERSION" `
+                --title $env:TITLE `
                 --body "Automated update from GitHub Actions workflow using Scoop's checkver/autoupdate.
 
           ## Changes
-          - Updated version from $env:CURRENT_VERSION to $env:NEW_VERSION
-          - Updated URL and SHA256 hash
+          - $env:CHANGES
 
           ## Source
           - $env:DOWNLOAD_URL"

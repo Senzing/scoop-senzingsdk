@@ -11,7 +11,7 @@ This project adheres to [Semantic Versioning].
 
 - The "Update to new release" workflow now uses Scoop's built-in `checkver`/`autoupdate` to find the latest version and update the manifest, instead of custom download-and-regex logic. The version input is now optional: leave it blank to take the latest version in S3, or set it to pin a specific version (passed to `checkver -Version -ForceUpdate`, so re-entering the current version re-hashes a re-uploaded MSI). Without an input, the workflow refuses to downgrade. The downloaded file is still validated as an MSI before its hash is committed.
 - The manifest is now in Scoop's canonical 4-space JSON format.
-- The manifest's `checkver` now selects the highest version in the S3 bucket. Previously its regex matched the first (oldest) key in the listing.
+- The manifest's `checkver` now selects the highest version in the S3 bucket. Previously its regex matched the alphabetically first MSI key in the listing, which is not necessarily the newest (today it would pick 4.3.6.26294 over 4.4.3.26300).
 
 ### Fixed
 
