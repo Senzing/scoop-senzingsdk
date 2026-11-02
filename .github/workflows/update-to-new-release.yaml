@@ -1,12 +1,12 @@
 name: Update to new release
 
-# checkov:skip=CKV_GHA_7: Manual maintainer override of upstream version. Refactor to `scoop checkver -u` is tracked separately and will remove this input. Input is regex-validated below.
+# checkov:skip=CKV_GHA_7: Optional maintainer override to pin a specific upstream version (e.g. a maintenance build or rollback). Input is regex-validated before use.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to update to (e.g. 4.2.2.26075)"
-        required: true
+        description: "Version to update to (e.g. 4.2.2.26075). Leave blank to use the latest version in S3."
+        required: false
         type: string
 
 permissions:
@@ -23,96 +23,143 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set variables
+      - name: Checkout Scoop
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ScoopInstaller/Scoop
+          # Dependabot does not update this ref; bump it manually when Scoop publishes a release.
+          # After bumping, re-verify the "already up to date" match on checkver's output below
+          # (e.g. dispatch with no input and confirm it reports the current version).
+          ref: e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f # v0.6.0
+          path: .scoop
+          persist-credentials: false
+
+      - name: Update manifest with Scoop checkver
         shell: pwsh
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          $s3Url = "https://senzing-production-win.s3.amazonaws.com/"
-          $version = $env:INPUT_VERSION
-
-          # Validate the input to prevent injection via the workflow_dispatch input.
-          # Accept both the dot form (4.3.2.26162) and the hyphen-before-build form (4.3.2-26162).
-          if ($version -notmatch '^\d+\.\d+\.\d+[.-]\d+$') {
-              Write-Error "Invalid version format: '$version'. Expected <major>.<minor>.<patch>.<build>, e.g. 4.3.2.26162 or 4.3.2-26162."
-              exit 1
-          }
-
-          # Normalize to the canonical dot form used in the manifest and S3 object key.
-          # After this, NEW_VERSION holds only digits and dots, so it is safe to interpolate
-          # into the S3 key, branch name, and commit message downstream.
-          $version = $version -replace '-', '.'
-
-          $key = "SenzingSDK_${version}.msi"
-
-          echo "S3_URL=$s3Url" >> $env:GITHUB_ENV
-          echo "NEW_VERSION=$version" >> $env:GITHUB_ENV
-          echo "LATEST_KEY=$key" >> $env:GITHUB_ENV
-
-      - name: Get current manifest version
-        shell: pwsh
-        run: |
-          $manifest = Get-Content -Path "bucket/senzingsdk.json" -Raw | ConvertFrom-Json
-          echo "CURRENT_VERSION=$($manifest.version)" >> $env:GITHUB_ENV
-
-      - name: Download and update manifest
-        shell: pwsh
-        run: |
           $ErrorActionPreference = 'Stop'
 
-          $downloadUrl = "$env:S3_URL$env:LATEST_KEY"
-          $tempFile = Join-Path $env:TEMP $env:LATEST_KEY
           $manifestPath = "bucket/senzingsdk.json"
+          $originalContent = (Get-Content -Path $manifestPath -Raw) -replace "`r`n", "`n"
+          $currentVersion = ($originalContent | ConvertFrom-Json).version
 
-          Write-Host "Downloading: $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFile -UseBasicParsing
+          # Give Scoop an empty download cache so the MSI it downloads to compute the hash
+          # can be inspected afterwards.
+          $env:SCOOP_CACHE = Join-Path $env:RUNNER_TEMP 'scoop-cache'
+          New-Item -ItemType Directory -Path $env:SCOOP_CACHE -Force | Out-Null
 
-          # Validate that S3 actually returned an MSI, not an error body or redirect HTML.
-          # MSI files are OLE compound documents; the first 8 bytes are a fixed magic value.
-          $magicBytes = Get-Content -Path $tempFile -AsByteStream -TotalCount 8
-          $magicHex = ($magicBytes | ForEach-Object { $_.ToString('X2') }) -join ''
-          if ($magicHex -ne 'D0CF11E0A1B11AE1') {
-              Write-Error "Downloaded file is not an MSI (magic bytes: $magicHex; expected D0CF11E0A1B11AE1). S3 may have returned a non-MSI body."
+          $checkverArgs = @{ App = 'senzingsdk'; Dir = 'bucket'; Update = $true; ThrowError = $true }
+
+          $requestedVersion = $env:INPUT_VERSION
+          if ($requestedVersion) {
+              # Validate the input to prevent injection via the workflow_dispatch input.
+              # Accept both the dot form (4.3.2.26162) and the hyphen-before-build form (4.3.2-26162).
+              # \A/\z (not ^/$, which allow a trailing newline in .NET) and [0-9] (not \d, which
+              # matches any Unicode digit) keep the accepted characters to ASCII digits, dots, and a hyphen.
+              if ($requestedVersion -notmatch '\A[0-9]+\.[0-9]+\.[0-9]+[.-][0-9]+\z') {
+                  Write-Error "Invalid version format: '$requestedVersion'. Expected <major>.<minor>.<patch>.<build>, e.g. 4.3.2.26162 or 4.3.2-26162."
+                  exit 1
+              }
+              # Normalize to the canonical dot form used in the manifest and S3 object key.
+              $requestedVersion = $requestedVersion -replace '-', '.'
+              # -Version skips the checkver lookup and runs autoupdate for this version.
+              # -ForceUpdate re-downloads and re-hashes even when it matches the manifest's
+              # version, so a re-uploaded MSI can be picked up.
+              $checkverArgs.Version = $requestedVersion
+              $checkverArgs.ForceUpdate = $true
+          }
+
+          # Scoop's checkver finds the latest version using the manifest's "checkver" block,
+          # then the "autoupdate" block rewrites the version, URL, and hash (downloading the
+          # MSI to compute it). Output is streamed to the log as it happens (so it survives a
+          # thrown error) and also captured so failures can be detected below.
+          & ./.scoop/bin/checkver.ps1 @checkverArgs *>&1 | Tee-Object -Variable checkverOutput
+          $output = $checkverOutput | Out-String
+
+          # Normalize to LF. Scoop writes CRLF, and the signed-commit step uploads the file's
+          # raw bytes (bypassing git's clean filter), so without this every auto-update would
+          # rewrite the whole file to CRLF.
+          $content = (Get-Content -Path $manifestPath -Raw) -replace "`r`n", "`n"
+          $newVersion = ($content | ConvertFrom-Json).version
+
+          # checkver skips a manifest silently if it lacks a checkver/autoupdate block, so confirm
+          # a requested version actually landed in the manifest.
+          if ($requestedVersion -and $newVersion -cne $requestedVersion) {
+              Write-Error "Manifest version is '$newVersion' after checkver, expected the requested $requestedVersion; see output above."
               exit 1
           }
 
-          Write-Host "Computing SHA256 hash..."
-          $hash = (Get-FileHash -Path $tempFile -Algorithm SHA256).Hash.ToLower()
-          Write-Host "SHA256: $hash"
+          # Compare the whole manifest, not just the version, so a hash-only change (a requested
+          # version that matches the manifest but whose MSI was re-uploaded) still produces a PR.
+          if ($content -ceq $originalContent) {
+              if ($requestedVersion) {
+                  Write-Host "Manifest already matches $requestedVersion; nothing to update."
+              } else {
+                  # checkver reports lookup failures by printing rather than throwing, so only treat
+                  # an unchanged manifest as "up to date" when checkver confirmed the current version.
+                  if ($output -notmatch "(?m)^senzingsdk:\s+$([regex]::Escape($currentVersion))\s*$") {
+                      Write-Error "checkver did not report a version; see output above."
+                      exit 1
+                  }
+                  Write-Host "senzingsdk is already at the latest version ($currentVersion)."
+              }
+              echo "UPDATED=false" >> $env:GITHUB_ENV
+              exit 0
+          }
 
-          # Update manifest fields in-place to preserve formatting
-          $content = Get-Content -Path $manifestPath -Raw
-
-          # Top-level version (only one in the manifest)
-          $content = $content -replace '"version":\s*"[^"]+"', "`"version`": `"$env:NEW_VERSION`""
-
-          # URL replacement: only matches concrete-version URLs (e.g. SenzingSDK_4.3.0.26135.msi),
-          # so the autoupdate template URL (SenzingSDK_$version.msi) is left untouched
-          $urlPattern = '"url":\s*"https://[^"]+SenzingSDK_[\d.]+\.msi"'
-          $content = $content -replace $urlPattern, "`"url`": `"$($env:S3_URL)$env:LATEST_KEY`""
-
-          # Hash replacement: only one hash field in the manifest, so no anchoring needed
-          $content = $content -replace '"hash":\s*"[0-9a-f]+"', "`"hash`": `"$hash`""
-
-          # Sanity check: the autoupdate template must still be intact
-          if ($content -notmatch 'SenzingSDK_\$version\.msi') {
-              Write-Error "Autoupdate template was corrupted by replacements; aborting."
+          # NEW_VERSION is interpolated into the branch name, commit message, and PR body,
+          # so ensure it holds only digits and dots.
+          if ($newVersion -notmatch '\A[0-9]+(\.[0-9]+){3}\z') {
+              Write-Error "Unexpected version format from checkver: '$newVersion'."
               exit 1
           }
 
-          # Normalize to LF. The Windows checkout writes CRLF, and the signed-commit
-          # step uploads the file's raw bytes (bypassing git's clean filter), so
-          # without this every auto-update would rewrite the whole file to CRLF.
-          $content = $content -replace "`r`n", "`n"
+          # Scoop runs autoupdate for any version that differs from the manifest, including a lower
+          # one (e.g. if the latest MSI is removed from S3). Only allow that when a maintainer
+          # explicitly requested the version.
+          if (-not $requestedVersion -and [version]$newVersion -lt [version]$currentVersion) {
+              Write-Error "checkver found $newVersion, which is lower than the current $currentVersion. Refusing to downgrade; pass the version input to do so deliberately."
+              exit 1
+          }
 
-          Set-Content -Path $manifestPath -Value $content -Encoding UTF8 -NoNewline
+          # Validate that S3 actually returned an MSI, not an error body or redirect HTML, before
+          # committing its hash. MSI files are OLE compound documents; the first 8 bytes are a
+          # fixed magic value. The cache started empty, so it holds only what checkver downloaded.
+          $downloads = @(Get-ChildItem -Path $env:SCOOP_CACHE -File)
+          if ($downloads.Count -eq 0) {
+              Write-Error "checkver updated the manifest but no download was found in $env:SCOOP_CACHE to validate."
+              exit 1
+          }
+          foreach ($download in $downloads) {
+              $magicBytes = Get-Content -Path $download.FullName -AsByteStream -TotalCount 8
+              $magicHex = ($magicBytes | ForEach-Object { $_.ToString('X2') }) -join ''
+              if ($magicHex -ne 'D0CF11E0A1B11AE1') {
+                  Write-Error "Downloaded file $($download.Name) is not an MSI (magic bytes: $magicHex; expected D0CF11E0A1B11AE1). S3 may have returned a non-MSI body."
+                  exit 1
+              }
+          }
 
-          Write-Host "Manifest updated successfully"
+          Set-Content -Path $manifestPath -Value $content -Encoding UTF8NoBOM -NoNewline
 
-          # Clean up
-          Remove-Item $tempFile -Force
+          # A hash-only change means the MSI for the current version was re-uploaded.
+          if ($newVersion -ceq $currentVersion) {
+              $title = "Refresh senzingsdk $newVersion hash"
+              $changes = "Updated SHA256 hash for $newVersion (MSI re-uploaded to S3)"
+          } else {
+              $title = "Update senzingsdk to version $newVersion"
+              $changes = "Updated version from $currentVersion to $newVersion, with its URL and SHA256 hash"
+          }
+
+          echo "UPDATED=true" >> $env:GITHUB_ENV
+          echo "TITLE=$title" >> $env:GITHUB_ENV
+          echo "CHANGES=$changes" >> $env:GITHUB_ENV
+          echo "NEW_VERSION=$newVersion" >> $env:GITHUB_ENV
+          echo "DOWNLOAD_URL=$(($content | ConvertFrom-Json).architecture.'64bit'.url)" >> $env:GITHUB_ENV
 
       - name: Create signed commit and pull request
+        if: env.UPDATED == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -154,7 +201,7 @@ jobs:
                           repositoryNameWithOwner = $repo
                           branchName = $branch
                       }
-                      message = @{ headline = "Update senzingsdk to version $env:NEW_VERSION" }
+                      message = @{ headline = $env:TITLE }
                       # The branch head equals $mainSha after the create/reset above
                       expectedHeadOid = $mainSha
                       fileChanges = @{
@@ -192,16 +239,14 @@ jobs:
               gh pr create `
                 --base main `
                 --head $branch `
-                --title "Update senzingsdk to version $env:NEW_VERSION" `
-                --body "Automated update from GitHub Actions workflow.
+                --title $env:TITLE `
+                --body "Automated update from GitHub Actions workflow using Scoop's checkver/autoupdate.
 
           ## Changes
-          - Updated version from $env:CURRENT_VERSION to $env:NEW_VERSION
-          - Updated SHA256 hash
+          - $env:CHANGES
 
           ## Source
-          - S3 Bucket: $env:S3_URL
-          - File: $env:LATEST_KEY"
+          - $env:DOWNLOAD_URL"
               if ($LASTEXITCODE -ne 0) {
                   Write-Error "Failed to create pull request for $branch."
                   exit 1
