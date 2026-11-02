@@ -1,7 +1,13 @@
 name: Update to new release
 
+# checkov:skip=CKV_GHA_7: Optional maintainer override to pin a specific upstream version (e.g. a maintenance build or rollback). Input is regex-validated before use.
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to update to (e.g. 4.2.2.26075). Leave blank to use the latest version in S3."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -27,17 +33,36 @@ jobs:
 
       - name: Update manifest with Scoop checkver
         shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
 
           $manifestPath = "bucket/senzingsdk.json"
           $currentVersion = (Get-Content -Path $manifestPath -Raw | ConvertFrom-Json).version
 
+          $checkverArgs = @{ App = 'senzingsdk'; Dir = 'bucket'; Update = $true; ThrowError = $true }
+
+          $requestedVersion = $env:INPUT_VERSION
+          if ($requestedVersion) {
+              # Validate the input to prevent injection via the workflow_dispatch input.
+              # Accept both the dot form (4.3.2.26162) and the hyphen-before-build form (4.3.2-26162).
+              if ($requestedVersion -notmatch '^\d+\.\d+\.\d+[.-]\d+$') {
+                  Write-Error "Invalid version format: '$requestedVersion'. Expected <major>.<minor>.<patch>.<build>, e.g. 4.3.2.26162 or 4.3.2-26162."
+                  exit 1
+              }
+              # Normalize to the canonical dot form used in the manifest and S3 object key.
+              $requestedVersion = $requestedVersion -replace '-', '.'
+              # -Version skips the checkver lookup and runs autoupdate for this version.
+              $checkverArgs.Version = $requestedVersion
+          }
+
           # Scoop's checkver finds the latest version using the manifest's "checkver" block,
           # then the "autoupdate" block rewrites the version, URL, and hash (downloading the
-          # MSI to compute it). Write-Host output is captured so failures can be detected below.
-          $output = & ./.scoop/bin/checkver.ps1 -App senzingsdk -Dir bucket -Update -ThrowError *>&1 | Out-String
-          Write-Host $output
+          # MSI to compute it). Output is streamed to the log as it happens (so it survives a
+          # thrown error) and also captured so failures can be detected below.
+          & ./.scoop/bin/checkver.ps1 @checkverArgs *>&1 | Tee-Object -Variable checkverOutput
+          $output = $checkverOutput | Out-String
 
           $newVersion = (Get-Content -Path $manifestPath -Raw | ConvertFrom-Json).version
 
@@ -57,6 +82,14 @@ jobs:
           # so ensure it holds only digits and dots.
           if ($newVersion -notmatch '^\d+(\.\d+){3}$') {
               Write-Error "Unexpected version format from checkver: '$newVersion'."
+              exit 1
+          }
+
+          # Scoop runs autoupdate for any version that differs from the manifest, including a lower
+          # one (e.g. if the latest MSI is removed from S3). Only allow that when a maintainer
+          # explicitly requested the version.
+          if (-not $requestedVersion -and [version]$newVersion -lt [version]$currentVersion) {
+              Write-Error "checkver found $newVersion, which is lower than the current $currentVersion. Refusing to downgrade; pass the version input to do so deliberately."
               exit 1
           }
 

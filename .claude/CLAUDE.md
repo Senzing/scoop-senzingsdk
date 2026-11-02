@@ -9,7 +9,7 @@ This is a **Scoop bucket** for distributing the Senzing SDK on Windows. It conta
 ## Key Files
 
 - **bucket/senzingsdk.json**: Scoop package manifest. Defines the download URL, SHA-256 hash, EULA acceptance flow, environment variable setup (`SENZING_DIR`, `PATH`), and `checkver`/`autoupdate` blocks for Scoop's built-in update tooling.
-- **.github/workflows/update-to-new-release.yaml**: Manually dispatched workflow that runs Scoop's own `checkver.ps1 -Update` (from a pinned checkout of ScoopInstaller/Scoop) against the manifest. Scoop's `checkver` block finds the latest version in the S3 bucket and its `autoupdate` block rewrites the version, URL, and hash. If the version changed, the workflow opens a PR with a signed commit.
+- **.github/workflows/update-to-new-release.yaml**: Manually dispatched workflow that runs Scoop's own `checkver.ps1 -Update` (from a pinned checkout of ScoopInstaller/Scoop) against the manifest. Scoop's `checkver` block finds the latest version in the S3 bucket (or an optional `version` input pins one via `checkver -Version`) and its `autoupdate` block rewrites the version, URL, and hash. If the version changed, the workflow opens a PR with a signed commit. It refuses to downgrade unless the version was given explicitly.
 
 ## Important Conventions
 
@@ -22,7 +22,7 @@ This is a **Scoop bucket** for distributing the Senzing SDK on Windows. It conta
 
 GitHub Actions workflows use reusable workflows from [senzing-factory/build-resources](https://github.com/senzing-factory/build-resources):
 
-- **update-to-new-release.yaml**: On dispatch, runs Scoop `checkver -Update` and opens a PR if a new SDK version is available
+- **update-to-new-release.yaml**: On dispatch, runs Scoop `checkver -Update` (optionally pinned to a given version) and opens a PR if the SDK version changed
 - **lint-workflows.yaml**: Runs super-linter on pushes to non-main branches and PRs to main
 - **spellcheck.yaml**: Runs cspell on PRs to main
 - **claude-pr-review.yaml**: Automated Claude PR review on opened/synchronized PRs

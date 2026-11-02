@@ -60,9 +60,9 @@
         "SENZING_DIR": "$dir\\er"
     },
     "checkver": {
+        "url": "https://senzing-production-win.s3.amazonaws.com/",
         "script": [
-            "$listing = (Invoke-WebRequest -Uri 'https://senzing-production-win.s3.amazonaws.com/' -UseBasicParsing).Content",
-            "$versions = [regex]::Matches($listing, 'SenzingSDK_(\\d+(?:\\.\\d+){3})\\.msi') | ForEach-Object { [version]$_.Groups[1].Value }",
+            "$versions = [regex]::Matches($page, 'SenzingSDK_(\\d+(?:\\.\\d+){3})\\.msi') | ForEach-Object { [version]$_.Groups[1].Value }",
             "($versions | Sort-Object -Descending | Select-Object -First 1).ToString()"
         ],
         "regex": "^([\\d.]+)$"

@@ -9,7 +9,7 @@ This project adheres to [Semantic Versioning].
 
 ### Changed
 
-- The "Update to new release" workflow now uses Scoop's built-in `checkver`/`autoupdate` to find the latest version and update the manifest, instead of custom download-and-regex logic. It no longer takes a version input.
+- The "Update to new release" workflow now uses Scoop's built-in `checkver`/`autoupdate` to find the latest version and update the manifest, instead of custom download-and-regex logic. The version input is now optional: leave it blank to take the latest version in S3, or set it to pin a specific version (passed to `checkver -Version`). Without an input, the workflow refuses to downgrade.
 - The manifest is now in Scoop's canonical 4-space JSON format.
 - The manifest's `checkver` now selects the highest version in the S3 bucket. Previously its regex matched the first (oldest) key in the listing.
 
