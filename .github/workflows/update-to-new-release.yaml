@@ -28,6 +28,8 @@ jobs:
         with:
           repository: ScoopInstaller/Scoop
           # Dependabot does not update this ref; bump it manually when Scoop publishes a release.
+          # After bumping, re-verify the "already up to date" match on checkver's output below
+          # (e.g. dispatch with no input and confirm it reports the current version).
           ref: e6aa3b366bdee8ed138c1e0f7b85192ebdd35d0f # v0.6.0
           path: .scoop
           persist-credentials: false

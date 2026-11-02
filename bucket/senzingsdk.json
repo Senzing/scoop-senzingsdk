@@ -62,7 +62,9 @@
     "checkver": {
         "url": "https://senzing-production-win.s3.amazonaws.com/",
         "script": [
+            "if ($page -match '<IsTruncated>true</IsTruncated>') { throw 'S3 listing is truncated (over 1000 keys); the latest SenzingSDK MSI may be missing from it.' }",
             "$versions = [regex]::Matches($page, 'SenzingSDK_(\\d+(?:\\.\\d+){3})\\.msi') | ForEach-Object { [version]$_.Groups[1].Value }",
+            "if (-not $versions) { throw 'No SenzingSDK_*.msi keys found in the S3 listing.' }",
             "($versions | Sort-Object -Descending | Select-Object -First 1).ToString()"
         ],
         "regex": "^([\\d.]+)$"
