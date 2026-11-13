@@ -1,5 +1,5 @@
 {
-    "version": "4.4.3.26300",
+    "version": "4.4.4.26314",
     "description": "Senzing SDK for Windows",
     "homepage": "https://senzing.com/senzing-api/",
     "license": {
@@ -19,8 +19,8 @@
     "extract_dir": "PFiles64\\Senzing",
     "architecture": {
         "64bit": {
-            "url": "https://senzing-production-win.s3.amazonaws.com/SenzingSDK_4.4.3.26300.msi",
-            "hash": "2db3af0115d1731065ff72fa605f21824a1ae70c839db800985c086e2a0edaa7"
+            "url": "https://senzing-production-win.s3.amazonaws.com/SenzingSDK_4.4.4.26314.msi",
+            "hash": "c29a1e39785e6cded7bfb2198f974b7a40907d8f0008743f0243ca3017c5eb7f"
         }
     },
     "pre_install": [
