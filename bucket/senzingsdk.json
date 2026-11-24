@@ -20,7 +20,7 @@
     "architecture": {
         "64bit": {
             "url": "https://senzing-production-win.s3.amazonaws.com/SenzingSDK_4.5.0.26320.msi",
-            "hash": "beeb23b78bf41cd8970cb226ff2cb3151245b1ab902ec0e41315003309fd5191"
+            "hash": "c21964258ed44425b27a555a2f585a03fdbe740306c743187f1cf5e74624a035"
         }
     },
     "pre_install": [
